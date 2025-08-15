@@ -16,61 +16,54 @@ const (
 	GB DataSize = 1024 * MB
 )
 
-type SpeedLimitConn struct {
+type speedLimit struct {
 	io.ReadWriteCloser
 	readLimit  *rate.Limiter
 	writeLimit *rate.Limiter
 	ctx        context.Context
 }
 
-func NewSpeedLimitConn(ctx context.Context, conn io.ReadWriteCloser) *SpeedLimitConn {
-	return &SpeedLimitConn{
-		ReadWriteCloser: conn,
-		ctx:             ctx,
-	}
-}
-
-func (slc *SpeedLimitConn) Read(p []byte) (n int, err error) {
+func (slc *speedLimit) Read(p []byte) (n int, err error) {
 	l := len(p)
 	if slc.readLimit != nil {
 		l = min(len(p), slc.readLimit.Burst())
-	}
-	err = slc.readLimit.WaitN(slc.ctx, l)
-	if err != nil {
-		return
+		err = slc.readLimit.WaitN(slc.ctx, l)
+		if err != nil {
+			return
+		}
 	}
 	return slc.ReadWriteCloser.Read(p[:l])
 }
 
-func (slc *SpeedLimitConn) Write(p []byte) (n int, err error) {
+func (slc *speedLimit) Write(p []byte) (n int, err error) {
 	l := len(p)
 	if slc.writeLimit != nil {
 		l = min(len(p), slc.writeLimit.Burst())
+		err = slc.writeLimit.WaitN(slc.ctx, l)
+		if err != nil {
+			return
+		}
 	}
-	err = slc.writeLimit.WaitN(slc.ctx, l)
-	if err != nil {
-		return
-	}
-	return slc.ReadWriteCloser.Write(p)
+	return slc.ReadWriteCloser.Write(p[:l])
 }
 
-type SpeedLimitOption func(*SpeedLimitConn)
+type SpeedLimitOption func(*speedLimit)
 
 func WithReadLimit(size DataSize) SpeedLimitOption {
-	return func(slc *SpeedLimitConn) {
+	return func(slc *speedLimit) {
 		slc.readLimit = rate.NewLimiter(rate.Limit(size)-1, int(size))
 	}
 }
 
 func WithWriteLimit(size DataSize) SpeedLimitOption {
-	return func(slc *SpeedLimitConn) {
+	return func(slc *speedLimit) {
 		slc.writeLimit = rate.NewLimiter(rate.Limit(size)-1, int(size))
 	}
 }
 
 func SpeedLimitMiddleware(opts ...SpeedLimitOption) Middleware {
 	return func(ctx context.Context, conn io.ReadWriteCloser) io.ReadWriteCloser {
-		slc := &SpeedLimitConn{
+		slc := &speedLimit{
 			ReadWriteCloser: conn,
 			ctx:             ctx,
 		}
