@@ -1,4 +1,4 @@
-module connware
+module github.com/aomori446/connware
 
 go 1.24.4
 
